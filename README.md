@@ -11,31 +11,27 @@ MCP server to access Arize AX data, query traces, manage datasets, and run exper
 
 ## Quick Start
 
-### 1. Install the package
-
-```bash
-cd /path/to/arize-mcp
-
-# With uv (recommended)
-uv pip install -e .
-
-# Or with pip (requires --pre for beta SDK)
-pip install --pre -e .
-```
-
-### 2. Get your Arize credentials
+### 1. Get your Arize credentials
 
 1. **API Key**: Go to [Arize AX](https://app.arize.com) > Space Settings > API Keys > Generate Key
-   - The key starts with `ak-`
-   - Copy it immediately (shown only once)
+2. **Space ID**: Found in your Arize Space Settings
 
-2. **Space ID**: Found in your Arize URL:
-   ```
-   https://app.arize.com/organizations/.../spaces/YOUR_SPACE_ID/...
-   ```
-   It's a Base64-encoded string like `U3BhY2U6MTIzNDpBQkNE`
+### 2. Configure Claude Code
 
-### 3. Configure Claude Code
+Run this command to add the server to Claude Code:
+
+```bash
+claude mcp add arize \
+  --transport stdio \
+  -e ARIZE_API_KEY=<your-api-key> \
+  -e ARIZE_SPACE_ID=<your-space-id> \
+  -- uvx --from git+https://github.com/exiao/arize-mcp.git arize-mcp
+```
+
+That's it! No cloning or manual installation required.
+
+<details>
+<summary>Alternative: Manual JSON configuration</summary>
 
 Add to your Claude Code MCP settings (`~/.claude/settings.json` or project settings):
 
@@ -43,17 +39,47 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json` or project setti
 {
   "mcpServers": {
     "arize": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "arize_mcp.server"],
-      "cwd": "/path/to/arize-mcp",
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/exiao/arize-mcp.git", "arize-mcp"],
       "env": {
-        "ARIZE_API_KEY": "ak-your-api-key-here",
-        "ARIZE_SPACE_ID": "U3BhY2U6eW91ci1zcGFjZS1pZA=="
+        "ARIZE_API_KEY": "<your-api-key>",
+        "ARIZE_SPACE_ID": "<your-space-id>"
       }
     }
   }
 }
 ```
+
+</details>
+
+<details>
+<summary>Alternative: Install from source</summary>
+
+If you want to modify the server or run from a local copy:
+
+```bash
+git clone https://github.com/exiao/arize-mcp.git
+cd arize-mcp
+uv pip install -e .
+```
+
+Then configure Claude Code with:
+
+```json
+{
+  "mcpServers": {
+    "arize": {
+      "command": "arize-mcp",
+      "env": {
+        "ARIZE_API_KEY": "<your-api-key>",
+        "ARIZE_SPACE_ID": "<your-space-id>"
+      }
+    }
+  }
+}
+```
+
+</details>
 
 ### 4. Use in Claude Code
 
