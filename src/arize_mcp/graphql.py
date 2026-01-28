@@ -91,6 +91,16 @@ class ArizeGraphQLClient:
         self.api_key = api_key
         self._client = httpx.Client(timeout=30.0)
 
+    def close(self) -> None:
+        """Close the HTTP client and release resources."""
+        self._client.close()
+
+    def __enter__(self) -> "ArizeGraphQLClient":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+
     def query(self, query: str, variables: dict | None = None) -> dict:
         """Execute a GraphQL query."""
         response = self._client.post(

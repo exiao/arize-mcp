@@ -1,5 +1,6 @@
 """Analysis tools for trace data using Arize SDK v8."""
 
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -7,6 +8,24 @@ import pandas as pd
 from fastmcp import FastMCP
 
 from ..client import ArizeClients
+
+# Valid span kinds for validation
+VALID_SPAN_KINDS = {"LLM", "CHAIN", "RETRIEVER", "TOOL", "EMBEDDING", "AGENT"}
+
+
+def _validate_span_kind(span_kind: str) -> bool:
+    """Validate that span_kind is a known value."""
+    return span_kind.upper() in VALID_SPAN_KINDS
+
+
+def _safe_std(series: pd.Series) -> float:
+    """Calculate standard deviation, returning 0 for single values or NaN."""
+    if len(series) <= 1:
+        return 0.0
+    std_val = series.std()
+    if math.isnan(std_val):
+        return 0.0
+    return float(std_val)
 
 
 def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
@@ -97,7 +116,15 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
             end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(days=days)
 
-            where_clause = f"span_kind = '{span_kind}'" if span_kind else None
+            where_clause = None
+            if span_kind:
+                # Validate span_kind against allowlist
+                if not _validate_span_kind(span_kind):
+                    return {
+                        "error": f"Invalid span_kind: {span_kind}",
+                        "valid_kinds": list(VALID_SPAN_KINDS),
+                    }
+                where_clause = f"span_kind = '{span_kind.upper()}'"
 
             df = clients.arize.spans.export_to_df(
                 space_id=clients.space_id,
@@ -140,7 +167,7 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
                     "max_ms": float(latencies.max()),
                     "mean_ms": float(latencies.mean()),
                     "median_ms": float(latencies.median()),
-                    "std_ms": float(latencies.std()) if len(latencies) > 1 else 0,
+                    "std_ms": _safe_std(latencies),
                     "p50_ms": float(latencies.quantile(0.50)),
                     "p75_ms": float(latencies.quantile(0.75)),
                     "p90_ms": float(latencies.quantile(0.90)),

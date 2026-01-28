@@ -1,5 +1,6 @@
 """Trace export and query tools using Arize SDK v8."""
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -7,6 +8,22 @@ import pandas as pd
 from fastmcp import FastMCP
 
 from ..client import ArizeClients
+
+# Valid span kinds for validation
+VALID_SPAN_KINDS = {"LLM", "CHAIN", "RETRIEVER", "TOOL", "EMBEDDING", "AGENT"}
+
+# Regex pattern for validating trace IDs (typically UUIDs or hex strings)
+TRACE_ID_PATTERN = re.compile(r"^[a-fA-F0-9-]{1,64}$")
+
+
+def _validate_trace_id(trace_id: str) -> bool:
+    """Validate that a trace ID looks like a valid identifier."""
+    return bool(TRACE_ID_PATTERN.match(trace_id))
+
+
+def _validate_span_kind(span_kind: str) -> bool:
+    """Validate that span_kind is a known value."""
+    return span_kind.upper() in VALID_SPAN_KINDS
 
 
 def _df_to_records(df: pd.DataFrame, limit: int = 100) -> list[dict]:
@@ -97,6 +114,13 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
             All spans belonging to the trace
         """
         try:
+            # Validate trace_id to prevent injection
+            if not _validate_trace_id(trace_id):
+                return {
+                    "error": "Invalid trace_id format",
+                    "hint": "Trace IDs should be alphanumeric with optional hyphens (UUID format).",
+                }
+
             end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(days=days)
 
@@ -150,7 +174,13 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
             if where:
                 conditions.append(where)
             if span_kind:
-                conditions.append(f"span_kind = '{span_kind}'")
+                # Validate span_kind against allowlist
+                if not _validate_span_kind(span_kind):
+                    return {
+                        "error": f"Invalid span_kind: {span_kind}",
+                        "valid_kinds": list(VALID_SPAN_KINDS),
+                    }
+                conditions.append(f"span_kind = '{span_kind.upper()}'")
             if has_error is True:
                 conditions.append("status_code = 'ERROR'")
             elif has_error is False:

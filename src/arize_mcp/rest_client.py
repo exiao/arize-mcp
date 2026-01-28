@@ -19,6 +19,16 @@ class ArizeRestClient:
             },
         )
 
+    def close(self) -> None:
+        """Close the HTTP client and release resources."""
+        self._client.close()
+
+    def __enter__(self) -> "ArizeRestClient":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+
     def _request(
         self,
         method: str,
@@ -31,7 +41,8 @@ class ArizeRestClient:
         response = self._client.request(method, url, params=params, json=json)
 
         if response.status_code == 401:
-            raise RuntimeError(f"Authentication failed: {response.json().get('detail', 'Invalid API key')}")
+            detail = response.json().get('detail', 'Invalid API key')
+            raise RuntimeError(f"Authentication failed: {detail}")
         if response.status_code == 404:
             raise RuntimeError(f"Not found: {endpoint}")
 
