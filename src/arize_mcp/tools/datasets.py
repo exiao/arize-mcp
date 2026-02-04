@@ -361,9 +361,10 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
                     placeholder = "{" + key + "}"
                     if placeholder in result:
                         if isinstance(value, dict):
-                            result = result.replace(placeholder, json.dumps(value))
+                            # Serialize to handle numpy/pandas types before JSON encoding
+                            result = result.replace(placeholder, json.dumps(_serialize_value(value)))
                         else:
-                            result = result.replace(placeholder, str(value))
+                            result = result.replace(placeholder, str(_serialize_value(value)))
 
                 return result
 
