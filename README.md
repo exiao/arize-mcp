@@ -222,13 +222,62 @@ This tests each API endpoint and shows which ones work with your API key.
 
 ```bash
 # Install with dev dependencies
-pip install --pre -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Run tests
-pytest
+uv run pytest
+
+# Run tests with coverage
+uv run pytest --cov=arize_mcp --cov-report=term-missing
 
 # Test the server locally
 fastmcp dev src/arize_mcp/server.py
+```
+
+## Testing
+
+The test suite is located in the `tests/` directory and uses pytest with mocks to avoid requiring real API credentials.
+
+### Test Structure
+
+```
+tests/
+├── conftest.py           # Shared fixtures (mock clients, sample data)
+├── test_config.py        # Config validation tests
+├── test_server.py        # Server initialization tests
+├── test_tools_models.py  # Project/model tool tests
+├── test_tools_traces.py  # Trace export/filter tool tests
+├── test_tools_datasets.py # Dataset/experiment tool tests
+└── test_tools_analysis.py # Analysis tool tests
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run specific test file
+uv run pytest tests/test_config.py
+
+# Run specific test class
+uv run pytest tests/test_tools_traces.py::TestExportTraces
+
+# Run with verbose output
+uv run pytest -v
+
+# Run with coverage report
+uv run pytest --cov=arize_mcp --cov-report=html
+```
+
+### Integration Testing
+
+For integration tests with real API credentials:
+
+```bash
+export ARIZE_API_KEY="your-api-key"
+export ARIZE_SPACE_ID="your-space-id"
+python test_credentials.py
 ```
 
 ## Technical Details
