@@ -13,6 +13,7 @@ class ArizeConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ARIZE_",
         env_file=".env",
+        extra="ignore",  # Ignore other env vars (e.g., from other MCP servers)
     )
 
     api_key: str
