@@ -40,8 +40,12 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
     def list_datasets() -> dict:
         """List all datasets in the Arize space.
 
+        Datasets contain examples (input/output pairs) used for running experiments
+        and evaluating LLM performance.
+
         Returns:
-            List of datasets with their IDs, names, and metadata
+            datasets: List of dataset objects with id, name, created_at
+            count: Total number of datasets
         """
         try:
             datasets = clients.rest.list_datasets()
@@ -54,14 +58,18 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
 
     @mcp.tool()
     def get_dataset(dataset_id: str, limit: int = 100) -> dict:
-        """Get a dataset and its examples.
+        """Get a dataset and its examples by ID.
+
+        Use list_datasets() first to find available dataset IDs.
 
         Args:
-            dataset_id: ID of the dataset
+            dataset_id: The dataset ID (base64 encoded, e.g., "RGF0YXNldDo...")
             limit: Maximum number of examples to return (default: 100)
 
         Returns:
-            Dataset info with examples
+            dataset: Dataset metadata (id, name, description, versions)
+            examples: List of examples with input/output pairs
+            example_count: Number of examples returned
         """
         try:
             dataset = clients.rest.get_dataset(dataset_id)
@@ -84,12 +92,14 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
         """Create a new dataset in Arize.
 
         Args:
-            name: Name for the new dataset
+            name: Name for the new dataset (must be unique)
             description: Optional description of the dataset
-            examples: Optional list of example dictionaries to add
+            examples: Optional list of examples to add. Each example should have
+                'input' and 'output' keys, e.g., [{"input": "question", "output": "answer"}]
 
         Returns:
-            Created dataset info
+            success: True if created successfully
+            dataset: Created dataset object with id, name
         """
         try:
             result = clients.rest.create_dataset(
@@ -127,8 +137,12 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
     def list_experiments() -> dict:
         """List all experiments in the Arize space.
 
+        Experiments are runs of LLM tasks over datasets, created by run_experiment().
+        Each experiment contains multiple runs (one per dataset example).
+
         Returns:
-            List of experiments with their IDs and metadata
+            experiments: List of experiment objects with id, name, dataset_id, created_at
+            count: Total number of experiments
         """
         try:
             experiments = clients.rest.list_experiments()
@@ -141,14 +155,22 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
 
     @mcp.tool()
     def get_experiment(experiment_id: str, limit: int = 100) -> dict:
-        """Get results from an experiment.
+        """Get detailed results from an experiment.
+
+        Use list_experiments() first to find available experiment IDs.
 
         Args:
-            experiment_id: ID of the experiment
+            experiment_id: The experiment ID (base64 encoded, e.g., "RXhwZXJpbWVudDo...")
             limit: Maximum number of runs to return (default: 100)
 
         Returns:
-            Experiment info with runs
+            experiment: Experiment metadata (id, name, dataset_id, created_at)
+            runs: List of individual run results, each with:
+                - id: Run identifier
+                - example_id: ID of the dataset example used
+                - output: LLM output for this example
+                - trace_id: Link to trace for debugging
+            run_count: Number of runs returned
         """
         try:
             experiment = clients.rest.get_experiment(experiment_id)
@@ -183,6 +205,7 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
         name: str,
         prompt_template: str,
         openai_api_key: str = None,
+        base_url: str = None,
         model: str = "gpt-4o-mini",
         system_prompt: str = None,
         temperature: float = 0.0,
@@ -202,9 +225,13 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
             prompt_template: Prompt template with placeholders like {input} or
                 {input.question}. Available variables: input, output,
                 metadata, id, dataset_row (full row dict)
-            openai_api_key: OpenAI API key for LLM calls. If not provided, will
+            openai_api_key: API key for LLM calls. If not provided, will
                 check OPENAI_API_KEY environment variable
-            model: OpenAI model to use (default: gpt-4o-mini)
+            base_url: Base URL for OpenAI-compatible API. Use for OpenRouter
+                (https://openrouter.ai/api/v1), Azure, or local models.
+                If not provided, checks OPENAI_BASE_URL env var, then defaults to OpenAI.
+            model: Model to use (default: gpt-4o-mini). For OpenRouter, use
+                format like "anthropic/claude-3-haiku" or "openai/gpt-4o"
             system_prompt: Optional system prompt for the LLM
             temperature: Temperature for LLM generation (default: 0.0)
             concurrency: Parallel execution level (default: 3)
@@ -216,24 +243,35 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
         Returns:
             Experiment results including ID, run count, and sample results
 
-        Example:
+        Example (OpenAI):
             run_experiment(
                 dataset_id="abc123",
                 name="sentiment_analysis_v1",
                 openai_api_key="sk-...",
                 prompt_template="Classify the sentiment of: {input.text}",
-                system_prompt="You are a sentiment classifier. Respond with: positive, negative, or neutral."
+                system_prompt="You are a sentiment classifier."
+            )
+
+        Example (OpenRouter):
+            run_experiment(
+                dataset_id="abc123",
+                name="claude_eval",
+                openai_api_key="sk-or-...",
+                base_url="https://openrouter.ai/api/v1",
+                model="anthropic/claude-3-haiku",
+                prompt_template="Analyze: {input}"
             )
         """
         try:
             import os
 
-            # Resolve OpenAI API key
+            # Resolve API key and base URL
             resolved_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
+            resolved_base_url = base_url or os.environ.get("OPENAI_BASE_URL")
 
             if not passthrough and not resolved_api_key:
                 return {
-                    "error": "OpenAI API key required",
+                    "error": "API key required",
                     "hint": "Provide openai_api_key parameter or set OPENAI_API_KEY environment variable. "
                     "Alternatively, use passthrough=True to test prompt formatting without LLM calls.",
                 }
@@ -241,7 +279,10 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
             openai_client = None
             if not passthrough:
                 from openai import OpenAI
-                openai_client = OpenAI(api_key=resolved_api_key)
+                client_kwargs = {"api_key": resolved_api_key}
+                if resolved_base_url:
+                    client_kwargs["base_url"] = resolved_base_url
+                openai_client = OpenAI(**client_kwargs)
 
             def _format_prompt(template: str, example) -> str:
                 """Format prompt template with example data.
@@ -320,9 +361,10 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
                     placeholder = "{" + key + "}"
                     if placeholder in result:
                         if isinstance(value, dict):
-                            result = result.replace(placeholder, json.dumps(value))
+                            # Serialize to handle numpy/pandas types before JSON encoding
+                            result = result.replace(placeholder, json.dumps(_serialize_value(value)))
                         else:
-                            result = result.replace(placeholder, str(value))
+                            result = result.replace(placeholder, str(_serialize_value(value)))
 
                 return result
 

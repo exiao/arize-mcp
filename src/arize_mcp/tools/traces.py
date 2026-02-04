@@ -93,19 +93,28 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
         limit: int = 100,
         columns: list[str] = None,
     ) -> dict:
-        """Export traces/spans from an Arize project as a table.
+        """Export traces and spans from an Arize project.
+
+        Traces represent complete request flows through your LLM application.
+        Each trace contains one or more spans (individual operations like LLM calls,
+        retrievals, or tool executions).
 
         Args:
-            project_name: The project name to export traces from
+            project_name: The project name (use list_projects() to find available names)
             days: Number of days to look back (default: 7)
             limit: Maximum number of spans to return (default: 100)
-            columns: Optional list of specific columns to include.
-                    Common columns: context.span_id, context.trace_id,
-                    attributes.input.value, attributes.output.value,
-                    attributes.llm.token_count.total, status_code
+            columns: Optional list of specific columns to include. If omitted, returns all.
+                Common columns:
+                - context.trace_id, context.span_id: Unique identifiers
+                - attributes.input.value, attributes.output.value: LLM inputs/outputs
+                - attributes.llm.token_count.total: Token usage
+                - status_code: OK or ERROR
+                - latency_ms: Duration in milliseconds
 
         Returns:
-            Dictionary with traces data and metadata
+            total_rows: Total spans matching the query
+            columns: List of available column names
+            traces: List of span records (up to limit)
         """
         try:
             end_time = datetime.now(timezone.utc)
@@ -147,15 +156,20 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
         trace_id: str,
         days: int = 7,
     ) -> dict:
-        """Get all spans for a specific trace.
+        """Get all spans for a specific trace by ID.
+
+        Use this to inspect the complete execution flow of a single request,
+        including all nested LLM calls, retrievals, and tool uses.
 
         Args:
             project_name: The project name
-            trace_id: The trace ID to retrieve
+            trace_id: The trace ID (hex string, e.g., "abc123def456...")
             days: Number of days to search back (default: 7)
 
         Returns:
-            All spans belonging to the trace
+            trace_id: The requested trace ID
+            span_count: Number of spans in this trace
+            spans: All spans belonging to the trace, ordered by execution
         """
         try:
             # Validate trace_id to prevent injection
@@ -196,18 +210,31 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
         span_kind: str = None,
         has_error: bool = None,
     ) -> dict:
-        """Filter spans by various criteria.
+        """Filter spans by type, status, or custom criteria.
+
+        Use this to find specific types of operations (e.g., all LLM calls)
+        or problematic spans (e.g., errors, high latency).
 
         Args:
             project_name: The project name
             days: Number of days to look back (default: 7)
             limit: Maximum number of spans to return (default: 100)
-            where: SQL-style filter expression (e.g., "attributes.llm.token_count.total > 1000")
-            span_kind: Filter by span kind (e.g., "LLM", "CHAIN", "RETRIEVER", "TOOL")
-            has_error: If true, only return spans with errors
+            where: SQL-style filter (e.g., "latency_ms > 5000" or
+                "attributes.llm.token_count.total > 1000")
+            span_kind: Filter by operation type:
+                - LLM: Language model calls
+                - CHAIN: Orchestration/workflow spans
+                - RETRIEVER: Vector/document retrieval
+                - TOOL: Tool/function calls
+                - EMBEDDING: Embedding generation
+                - AGENT: Agent execution spans
+            has_error: If True, only return failed spans; if False, only successful
 
         Returns:
-            Filtered spans with metadata
+            total_matches: Number of spans matching filters
+            filter_applied: The WHERE clause used (if any)
+            span_kind_filter: The span kind filter applied (if any)
+            spans: Filtered span records
         """
         try:
             end_time = datetime.now(timezone.utc)
