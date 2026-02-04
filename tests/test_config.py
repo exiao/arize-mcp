@@ -65,3 +65,21 @@ class TestArizeConfig:
         }):
             config = get_config()
             assert isinstance(config, ArizeConfig)
+
+    def test_ignores_extra_env_vars(self):
+        """Test that extra environment variables are ignored.
+
+        This is important when multiple MCP servers share an environment
+        (e.g., Arize + Alpaca in Cursor).
+        """
+        with patch.dict("os.environ", {
+            "ARIZE_API_KEY": "ak-test-key-12345",
+            "ARIZE_SPACE_ID": "U3BhY2U6dGVzdA==",
+            # Extra vars from other MCP servers should be ignored
+            "ALPACA_API_KEY": "some-alpaca-key",
+            "ALPACA_SECRET_KEY": "some-secret",
+            "OTHER_RANDOM_VAR": "value",
+        }):
+            # Should not raise ValidationError
+            config = ArizeConfig()
+            assert config.api_key == "ak-test-key-12345"
