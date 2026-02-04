@@ -120,11 +120,11 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
                 columns=columns,
             )
 
-            return {
+            return _serialize_value({
                 "total_rows": len(df),
                 "columns": list(df.columns),
                 "traces": _df_to_records(df, limit),
-            }
+            })
         except Exception as e:
             error_msg = str(e)
             if "unauthenticated" in error_msg.lower() or "api key" in error_msg.lower():
@@ -179,11 +179,11 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
 
             spans = _df_to_records(df, limit=1000)
 
-            return {
+            return _serialize_value({
                 "trace_id": trace_id,
                 "span_count": len(spans),
                 "spans": spans,
-            }
+            })
         except Exception as e:
             return {"error": str(e)}
 
@@ -213,37 +213,44 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
             end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(days=days)
 
-            # Build WHERE clause
+            # Validate span_kind early if provided
+            if span_kind and not _validate_span_kind(span_kind):
+                return {
+                    "error": f"Invalid span_kind: {span_kind}",
+                    "valid_kinds": list(VALID_SPAN_KINDS),
+                }
+
+            # Build WHERE clause (exclude span_kind - filter client-side due to column name issues)
             conditions = []
             if where:
                 conditions.append(where)
-            if span_kind:
-                # Validate span_kind against allowlist
-                if not _validate_span_kind(span_kind):
-                    return {
-                        "error": f"Invalid span_kind: {span_kind}",
-                        "valid_kinds": list(VALID_SPAN_KINDS),
-                    }
-                conditions.append(f"{SPAN_KIND_COLUMN} = '{span_kind.upper()}'")
             if has_error is True:
                 conditions.append("status_code = 'ERROR'")
             elif has_error is False:
                 conditions.append("status_code != 'ERROR'")
 
+            # Build kwargs conditionally - API doesn't accept None for where
+            export_kwargs = {
+                "space_id": clients.space_id,
+                "project_name": project_name,
+                "start_time": start_time,
+                "end_time": end_time,
+            }
             where_clause = " AND ".join(conditions) if conditions else None
+            if where_clause:
+                export_kwargs["where"] = where_clause
 
-            df = clients.arize.spans.export_to_df(
-                space_id=clients.space_id,
-                project_name=project_name,
-                start_time=start_time,
-                end_time=end_time,
-                where=where_clause,
-            )
+            df = clients.arize.spans.export_to_df(**export_kwargs)
 
-            return {
+            # Filter by span_kind client-side (API WHERE clause has column name issues)
+            if span_kind and SPAN_KIND_COLUMN in df.columns:
+                df = df[df[SPAN_KIND_COLUMN] == span_kind.upper()]
+
+            return _serialize_value({
                 "total_matches": len(df),
                 "filter_applied": where_clause,
+                "span_kind_filter": span_kind.upper() if span_kind else None,
                 "spans": _df_to_records(df, limit),
-            }
+            })
         except Exception as e:
             return {"error": str(e)}
