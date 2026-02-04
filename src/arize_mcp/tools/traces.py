@@ -2,7 +2,6 @@
 
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import pandas as pd
 from fastmcp import FastMCP
@@ -47,7 +46,7 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
         project_name: str,
         days: int = 7,
         limit: int = 100,
-        columns: Optional[list[str]] = None,
+        columns: list[str] = None,
     ) -> dict:
         """Export traces/spans from an Arize project as a table.
 
@@ -148,9 +147,9 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
         project_name: str,
         days: int = 7,
         limit: int = 100,
-        where: Optional[str] = None,
-        span_kind: Optional[str] = None,
-        has_error: Optional[bool] = None,
+        where: str = None,
+        span_kind: str = None,
+        has_error: bool = None,
     ) -> dict:
         """Filter spans by various criteria.
 

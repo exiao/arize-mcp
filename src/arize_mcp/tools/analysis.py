@@ -2,7 +2,6 @@
 
 import math
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import pandas as pd
 from fastmcp import FastMCP
@@ -100,7 +99,7 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
     def analyze_latency(
         project_name: str,
         days: int = 7,
-        span_kind: Optional[str] = None,
+        span_kind: str = None,
     ) -> dict:
         """Analyze latency distribution for traces.
 

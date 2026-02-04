@@ -1,7 +1,5 @@
 """Dataset management tools using Arize REST API v2."""
 
-from typing import Optional
-
 from fastmcp import FastMCP
 
 from ..client import ArizeClients
@@ -52,8 +50,8 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
     @mcp.tool()
     def create_dataset(
         name: str,
-        description: Optional[str] = None,
-        examples: Optional[list[dict]] = None,
+        description: str = None,
+        examples: list[dict] = None,
     ) -> dict:
         """Create a new dataset in Arize.
 
