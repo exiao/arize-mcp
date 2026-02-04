@@ -94,7 +94,10 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
         days: int = 7,
         limit: int = 20,
     ) -> dict:
-        """Analyze errors in traces to identify patterns.
+        """Analyze errors in traces to identify common failure patterns.
+
+        Use this to understand why your LLM application is failing and
+        find the most frequent error types.
 
         Args:
             project_name: The project name to analyze
@@ -102,7 +105,10 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
             limit: Maximum number of error examples to return (default: 20)
 
         Returns:
-            Error summary with counts and example errors
+            error_count: Total number of errors in time range
+            time_range_days: Days analyzed
+            error_patterns: Most common error messages with counts (top 10)
+            sample_errors: Example error spans for debugging
         """
         try:
             end_time = datetime.now(timezone.utc)
@@ -156,15 +162,23 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
         days: int = 7,
         span_kind: str = None,
     ) -> dict:
-        """Analyze latency distribution for traces.
+        """Analyze latency distribution to identify performance bottlenecks.
+
+        Use this to understand response time patterns and find slow operations.
+        Filter by span_kind to analyze specific operation types (e.g., just LLM calls).
 
         Args:
             project_name: The project name to analyze
             days: Number of days to look back (default: 7)
-            span_kind: Optional filter by span kind (LLM, CHAIN, RETRIEVER, TOOL)
+            span_kind: Optional filter (LLM, CHAIN, RETRIEVER, TOOL, EMBEDDING, AGENT)
 
         Returns:
-            Latency statistics including percentiles
+            span_count: Number of spans analyzed
+            time_range_days: Days analyzed
+            span_kind: Filter applied (if any)
+            latency_stats: Latency metrics in milliseconds:
+                - min_ms, max_ms, mean_ms, median_ms, std_ms
+                - p50_ms, p75_ms, p90_ms, p95_ms, p99_ms (percentiles)
         """
         try:
             end_time = datetime.now(timezone.utc)
@@ -244,14 +258,22 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
         project_name: str,
         days: int = 7,
     ) -> dict:
-        """Get aggregate statistics for traces.
+        """Get aggregate statistics for a project's traces.
+
+        Use this to get a high-level overview of your LLM application's
+        activity, including volume, success rates, and token usage.
 
         Args:
             project_name: The project name to analyze
             days: Number of days to look back (default: 7)
 
         Returns:
-            Statistics including counts by span kind and status
+            total_spans: Total number of spans
+            unique_traces: Number of distinct request traces
+            time_range_days: Days analyzed
+            by_span_kind: Breakdown by operation type (LLM, CHAIN, etc.)
+            by_status: Breakdown by status (OK, ERROR)
+            token_usage: Token consumption stats (total, mean, max) if available
         """
         try:
             end_time = datetime.now(timezone.utc)

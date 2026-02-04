@@ -12,13 +12,18 @@ def register_model_tools(mcp: FastMCP, clients: ArizeClients):
 
     @mcp.tool()
     def list_projects() -> dict:
-        """List all projects in the Arize space.
+        """List all projects (tracing endpoints) in the Arize space.
 
-        Returns a list of projects with their IDs and names.
-        Use the project name as model_id for trace export operations.
+        Projects contain traces from your LLM applications. Each project has a
+        unique name that you use with export_traces(), filter_spans(), and
+        analysis tools.
 
-        Note: This uses the REST API v2 which requires appropriate permissions.
-        If this fails, you can still use export_traces with a known project name.
+        Returns:
+            projects: List of projects with id and name
+            count: Total number of projects
+
+        Note: Use the project 'name' (not 'id') when calling trace tools like
+        export_traces(project_name="your-project-name").
         """
         try:
             projects = clients.rest.list_projects()
@@ -44,16 +49,21 @@ def register_model_tools(mcp: FastMCP, clients: ArizeClients):
         model_id: str,
         days: int = 7,
     ) -> dict:
-        """Get the tracing schema for a model, including span properties, evaluations, and annotations.
+        """Get the tracing schema for a project, showing available span properties and evaluations.
+
+        Use this to discover what columns are available when filtering traces.
 
         Args:
-            model_id: The model ID (from list_projects)
+            model_id: The project/model ID from list_projects() (use the 'id' field, not 'name')
             days: Number of days to look back for schema discovery (default: 7)
 
         Returns:
-            Schema information including span properties, LLM evals, and annotations
+            span_properties: List of available span attribute columns
+            evaluations: List of configured LLM evaluation metrics
+            annotations: List of human annotation fields
 
-        Note: Requires GraphQL developer permissions.
+        Note: Requires GraphQL developer permissions. If this fails, use
+        export_traces() to see available columns directly.
         """
         try:
             end_time = datetime.now(timezone.utc)

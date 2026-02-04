@@ -40,8 +40,12 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
     def list_datasets() -> dict:
         """List all datasets in the Arize space.
 
+        Datasets contain examples (input/output pairs) used for running experiments
+        and evaluating LLM performance.
+
         Returns:
-            List of datasets with their IDs, names, and metadata
+            datasets: List of dataset objects with id, name, created_at
+            count: Total number of datasets
         """
         try:
             datasets = clients.rest.list_datasets()
@@ -54,14 +58,18 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
 
     @mcp.tool()
     def get_dataset(dataset_id: str, limit: int = 100) -> dict:
-        """Get a dataset and its examples.
+        """Get a dataset and its examples by ID.
+
+        Use list_datasets() first to find available dataset IDs.
 
         Args:
-            dataset_id: ID of the dataset
+            dataset_id: The dataset ID (base64 encoded, e.g., "RGF0YXNldDo...")
             limit: Maximum number of examples to return (default: 100)
 
         Returns:
-            Dataset info with examples
+            dataset: Dataset metadata (id, name, description, versions)
+            examples: List of examples with input/output pairs
+            example_count: Number of examples returned
         """
         try:
             dataset = clients.rest.get_dataset(dataset_id)
@@ -84,12 +92,14 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
         """Create a new dataset in Arize.
 
         Args:
-            name: Name for the new dataset
+            name: Name for the new dataset (must be unique)
             description: Optional description of the dataset
-            examples: Optional list of example dictionaries to add
+            examples: Optional list of examples to add. Each example should have
+                'input' and 'output' keys, e.g., [{"input": "question", "output": "answer"}]
 
         Returns:
-            Created dataset info
+            success: True if created successfully
+            dataset: Created dataset object with id, name
         """
         try:
             result = clients.rest.create_dataset(
@@ -127,8 +137,12 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
     def list_experiments() -> dict:
         """List all experiments in the Arize space.
 
+        Experiments are runs of LLM tasks over datasets, created by run_experiment().
+        Each experiment contains multiple runs (one per dataset example).
+
         Returns:
-            List of experiments with their IDs and metadata
+            experiments: List of experiment objects with id, name, dataset_id, created_at
+            count: Total number of experiments
         """
         try:
             experiments = clients.rest.list_experiments()
@@ -141,14 +155,22 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
 
     @mcp.tool()
     def get_experiment(experiment_id: str, limit: int = 100) -> dict:
-        """Get results from an experiment.
+        """Get detailed results from an experiment.
+
+        Use list_experiments() first to find available experiment IDs.
 
         Args:
-            experiment_id: ID of the experiment
+            experiment_id: The experiment ID (base64 encoded, e.g., "RXhwZXJpbWVudDo...")
             limit: Maximum number of runs to return (default: 100)
 
         Returns:
-            Experiment info with runs
+            experiment: Experiment metadata (id, name, dataset_id, created_at)
+            runs: List of individual run results, each with:
+                - id: Run identifier
+                - example_id: ID of the dataset example used
+                - output: LLM output for this example
+                - trace_id: Link to trace for debugging
+            run_count: Number of runs returned
         """
         try:
             experiment = clients.rest.get_experiment(experiment_id)
