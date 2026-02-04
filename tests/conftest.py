@@ -88,7 +88,7 @@ def mock_arize_client():
     mock_df = pd.DataFrame({
         "context.trace_id": ["trace-1", "trace-1", "trace-2"],
         "context.span_id": ["span-1", "span-2", "span-3"],
-        "span_kind": ["LLM", "CHAIN", "LLM"],
+        "attributes.openinference.span.kind": ["LLM", "CHAIN", "LLM"],
         "status_code": ["OK", "OK", "ERROR"],
         "latency_ms": [100.0, 50.0, 200.0],
         "attributes.input.value": ["input1", "input2", "input3"],
@@ -117,7 +117,7 @@ def sample_trace_df():
     return pd.DataFrame({
         "context.trace_id": ["trace-1", "trace-1", "trace-2", "trace-3"],
         "context.span_id": ["span-1", "span-2", "span-3", "span-4"],
-        "span_kind": ["LLM", "CHAIN", "LLM", "RETRIEVER"],
+        "attributes.openinference.span.kind": ["LLM", "CHAIN", "LLM", "RETRIEVER"],
         "status_code": ["OK", "OK", "ERROR", "OK"],
         "latency_ms": [100.0, 50.0, 200.0, 75.0],
         "status_message": [None, None, "Rate limit exceeded", None],

@@ -3,6 +3,7 @@
 import re
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 from fastmcp import FastMCP
 
@@ -10,6 +11,9 @@ from ..client import ArizeClients
 
 # Valid span kinds for validation
 VALID_SPAN_KINDS = {"LLM", "CHAIN", "RETRIEVER", "TOOL", "EMBEDDING", "AGENT"}
+
+# The actual column name in Arize for span kind
+SPAN_KIND_COLUMN = "attributes.openinference.span.kind"
 
 # Regex pattern for validating trace IDs (typically UUIDs or hex strings)
 TRACE_ID_PATTERN = re.compile(r"^[a-fA-F0-9-]{1,64}$")
@@ -25,16 +29,57 @@ def _validate_span_kind(span_kind: str) -> bool:
     return span_kind.upper() in VALID_SPAN_KINDS
 
 
+def _serialize_value(val):
+    """Convert value to JSON-serializable format."""
+    if val is None:
+        return None
+
+    # Handle numpy arrays early (before pd.isna which fails on arrays)
+    if isinstance(val, np.ndarray):
+        return [_serialize_value(v) for v in val.tolist()]
+
+    # Handle lists (may contain non-serializable items)
+    if isinstance(val, list):
+        return [_serialize_value(v) for v in val]
+
+    # Handle dicts (may contain non-serializable items)
+    if isinstance(val, dict):
+        return {k: _serialize_value(v) for k, v in val.items()}
+
+    # Check for NaN/NaT (scalar values only)
+    try:
+        if pd.isna(val):
+            return None
+    except (ValueError, TypeError):
+        pass
+
+    # Handle numpy types
+    if isinstance(val, np.integer):
+        return int(val)
+    if isinstance(val, np.floating):
+        if np.isnan(val):
+            return None
+        return float(val)
+    if isinstance(val, np.bool_):
+        return bool(val)
+
+    # Handle timestamps
+    if isinstance(val, (pd.Timestamp, datetime)):
+        return val.isoformat()
+
+    return val
+
+
 def _df_to_records(df: pd.DataFrame, limit: int = 100) -> list[dict]:
-    """Convert DataFrame to list of records, handling NaN values."""
+    """Convert DataFrame to JSON-serializable list of records."""
     if df.empty:
         return []
 
-    # Take first N rows
     df = df.head(limit)
-
-    # Convert to records, replacing NaN with None
-    records = df.where(pd.notnull(df), None).to_dict(orient="records")
+    records = []
+    for _, row in df.iterrows():
+        record = {col: _serialize_value(row[col]) for col in df.columns}
+        records.append(record)
     return records
 
 
@@ -179,7 +224,7 @@ def register_trace_tools(mcp: FastMCP, clients: ArizeClients):
                         "error": f"Invalid span_kind: {span_kind}",
                         "valid_kinds": list(VALID_SPAN_KINDS),
                     }
-                conditions.append(f"span_kind = '{span_kind.upper()}'")
+                conditions.append(f"{SPAN_KIND_COLUMN} = '{span_kind.upper()}'")
             if has_error is True:
                 conditions.append("status_code = 'ERROR'")
             elif has_error is False:

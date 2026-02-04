@@ -3,6 +3,7 @@
 import math
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 from fastmcp import FastMCP
 
@@ -11,10 +12,67 @@ from ..client import ArizeClients
 # Valid span kinds for validation
 VALID_SPAN_KINDS = {"LLM", "CHAIN", "RETRIEVER", "TOOL", "EMBEDDING", "AGENT"}
 
+# The actual column name in Arize for span kind
+SPAN_KIND_COLUMN = "attributes.openinference.span.kind"
+
 
 def _validate_span_kind(span_kind: str) -> bool:
     """Validate that span_kind is a known value."""
     return span_kind.upper() in VALID_SPAN_KINDS
+
+
+def _serialize_value(val):
+    """Convert value to JSON-serializable format."""
+    if val is None:
+        return None
+
+    # Handle numpy arrays early (before pd.isna which fails on arrays)
+    if isinstance(val, np.ndarray):
+        return [_serialize_value(v) for v in val.tolist()]
+
+    # Handle lists (may contain non-serializable items)
+    if isinstance(val, list):
+        return [_serialize_value(v) for v in val]
+
+    # Handle dicts (may contain non-serializable items)
+    if isinstance(val, dict):
+        return {k: _serialize_value(v) for k, v in val.items()}
+
+    # Check for NaN/NaT (scalar values only)
+    try:
+        if pd.isna(val):
+            return None
+    except (ValueError, TypeError):
+        pass
+
+    # Handle numpy types
+    if isinstance(val, np.integer):
+        return int(val)
+    if isinstance(val, np.floating):
+        if np.isnan(val):
+            return None
+        return float(val)
+    if isinstance(val, np.bool_):
+        return bool(val)
+
+    # Handle timestamps
+    if isinstance(val, (pd.Timestamp, datetime)):
+        return val.isoformat()
+
+    return val
+
+
+def _df_to_records(df: pd.DataFrame, limit: int = 100) -> list[dict]:
+    """Convert DataFrame to JSON-serializable list of records."""
+    if df.empty:
+        return []
+
+    df = df.head(limit)
+    records = []
+    for _, row in df.iterrows():
+        record = {col: _serialize_value(row[col]) for col in df.columns}
+        records.append(record)
+    return records
 
 
 def _safe_std(series: pd.Series) -> float:
@@ -86,10 +144,7 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
                 ]
 
             # Sample errors
-            sample = df.head(limit)
-            result["sample_errors"] = sample.where(pd.notnull(sample), None).to_dict(
-                orient="records"
-            )
+            result["sample_errors"] = _df_to_records(df, limit)
 
             return result
         except Exception as e:
@@ -123,7 +178,7 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
                         "error": f"Invalid span_kind: {span_kind}",
                         "valid_kinds": list(VALID_SPAN_KINDS),
                     }
-                where_clause = f"span_kind = '{span_kind.upper()}'"
+                where_clause = f"{SPAN_KIND_COLUMN} = '{span_kind.upper()}'"
 
             df = clients.arize.spans.export_to_df(
                 space_id=clients.space_id,
@@ -219,8 +274,8 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
                 result["unique_traces"] = df["context.trace_id"].nunique()
 
             # Breakdown by span kind
-            if "span_kind" in df.columns:
-                result["by_span_kind"] = df["span_kind"].value_counts().to_dict()
+            if SPAN_KIND_COLUMN in df.columns:
+                result["by_span_kind"] = df[SPAN_KIND_COLUMN].value_counts().to_dict()
 
             # Breakdown by status
             if "status_code" in df.columns:
