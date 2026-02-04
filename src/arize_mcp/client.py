@@ -1,10 +1,20 @@
 """Arize AX client wrappers."""
 
+import logging
+import os
+
 from arize import ArizeClient
 
 from .config import ArizeConfig
 from .graphql import ArizeGraphQLClient
 from .rest_client import ArizeRestClient
+
+# Suppress Arize SDK's noisy logging that interferes with MCP JSON protocol
+# The ANSI escape codes in log output cause "Unexpected token" errors
+logging.getLogger("arize").setLevel(logging.ERROR)
+
+# Disable tqdm progress bars that also output ANSI codes
+os.environ.setdefault("TQDM_DISABLE", "1")
 
 
 class ArizeClients:

@@ -146,7 +146,7 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
             # Sample errors
             result["sample_errors"] = _df_to_records(df, limit)
 
-            return result
+            return _serialize_value(result)
         except Exception as e:
             return {"error": str(e)}
 
@@ -170,22 +170,18 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
             end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(days=days)
 
-            where_clause = None
-            if span_kind:
-                # Validate span_kind against allowlist
-                if not _validate_span_kind(span_kind):
-                    return {
-                        "error": f"Invalid span_kind: {span_kind}",
-                        "valid_kinds": list(VALID_SPAN_KINDS),
-                    }
-                where_clause = f"{SPAN_KIND_COLUMN} = '{span_kind.upper()}'"
+            # Validate span_kind early if provided
+            if span_kind and not _validate_span_kind(span_kind):
+                return {
+                    "error": f"Invalid span_kind: {span_kind}",
+                    "valid_kinds": list(VALID_SPAN_KINDS),
+                }
 
             df = clients.arize.spans.export_to_df(
                 space_id=clients.space_id,
                 project_name=project_name,
                 start_time=start_time,
                 end_time=end_time,
-                where=where_clause,
             )
 
             if df.empty:
@@ -194,6 +190,17 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
                     "time_range_days": days,
                     "message": "No spans found in the specified time range",
                 }
+
+            # Filter by span_kind client-side (API WHERE clause has column name issues)
+            if span_kind and SPAN_KIND_COLUMN in df.columns:
+                df = df[df[SPAN_KIND_COLUMN] == span_kind.upper()]
+                if df.empty:
+                    return {
+                        "span_count": 0,
+                        "time_range_days": days,
+                        "span_kind": span_kind,
+                        "message": f"No spans of kind '{span_kind.upper()}' found",
+                    }
 
             # Find latency column
             latency_col = None
@@ -212,7 +219,7 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
 
             latencies = df[latency_col].dropna()
 
-            return {
+            return _serialize_value({
                 "span_count": len(df),
                 "time_range_days": days,
                 "span_kind": span_kind,
@@ -228,7 +235,7 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
                     "p95_ms": float(latencies.quantile(0.95)),
                     "p99_ms": float(latencies.quantile(0.99)),
                 },
-            }
+            })
         except Exception as e:
             return {"error": str(e)}
 
@@ -301,6 +308,6 @@ def register_analysis_tools(mcp: FastMCP, clients: ArizeClients):
                         "max": int(tokens.max()),
                     }
 
-            return result
+            return _serialize_value(result)
         except Exception as e:
             return {"error": str(e)}
