@@ -141,7 +141,7 @@ class TestFilterSpans:
         assert "total_matches" in result
         assert "filter_applied" in result
         assert "spans" in result
-        assert "span_kind = 'LLM'" in result["filter_applied"]
+        assert "attributes.openinference.span.kind = 'LLM'" in result["filter_applied"]
 
     def test_filter_spans_with_error_filter(self, mock_clients):
         """Test filtering for error spans."""
