@@ -30,7 +30,7 @@ class ArizeClients:
 
         # REST API v2 client for datasets, experiments, projects
         # Uses Bearer auth which works correctly
-        self.rest = ArizeRestClient(api_key=config.api_key)
+        self.rest = ArizeRestClient(api_key=config.api_key, space_id=config.space_id)
 
         # GraphQL client for models and schema (requires developer permissions)
         self.graphql = ArizeGraphQLClient(api_key=config.api_key)

@@ -9,8 +9,9 @@ REST_API_BASE = "https://api.arize.com/v2"
 class ArizeRestClient:
     """Client for Arize AX REST API v2."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, space_id: str = None):
         self.api_key = api_key
+        self.space_id = space_id
         self._client = httpx.Client(
             timeout=30.0,
             headers={
@@ -79,6 +80,8 @@ class ArizeRestClient:
     ) -> dict:
         """Create a new dataset."""
         payload = {"name": name}
+        if self.space_id:
+            payload["space_id"] = self.space_id
         if description:
             payload["description"] = description
         if examples:
