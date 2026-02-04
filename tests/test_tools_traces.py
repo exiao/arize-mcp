@@ -139,9 +139,10 @@ class TestFilterSpans:
         result = tool.fn(project_name="test-project", span_kind="LLM")
 
         assert "total_matches" in result
-        assert "filter_applied" in result
         assert "spans" in result
-        assert "attributes.openinference.span.kind = 'LLM'" in result["filter_applied"]
+        # span_kind is filtered client-side, not in where clause
+        assert "span_kind_filter" in result
+        assert result["span_kind_filter"] == "LLM"
 
     def test_filter_spans_with_error_filter(self, mock_clients):
         """Test filtering for error spans."""
