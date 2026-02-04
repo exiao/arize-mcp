@@ -96,6 +96,31 @@ def mock_arize_client():
     })
     client.spans.export_to_df.return_value = mock_df
 
+    # Mock experiments
+    mock_experiment = MagicMock()
+    mock_experiment.id = "exp-new"
+
+    mock_results_df = pd.DataFrame({
+        "id": ["run-1", "run-2"],
+        "example_id": ["ex-1", "ex-2"],
+        "result": ["output 1", "output 2"],
+        "result.trace.id": ["trace-1", "trace-2"],
+        "result.trace.timestamp": [1234567890, 1234567891],
+    })
+
+    client.experiments.run.return_value = (mock_experiment, mock_results_df)
+
+    # Mock experiments.list_runs
+    mock_run = MagicMock()
+    mock_run.id = "run-1"
+    mock_run.example_id = "ex-1"
+    mock_run.output = "test output"
+    mock_run.additional_properties = {"trace_id": "trace-1"}
+
+    mock_runs_response = MagicMock()
+    mock_runs_response.experiment_runs = [mock_run]
+    client.experiments.list_runs.return_value = mock_runs_response
+
     return client
 
 

@@ -1,8 +1,36 @@
 """Dataset management tools using Arize REST API v2."""
 
+import json
+
 from fastmcp import FastMCP
 
 from ..client import ArizeClients
+
+
+def _serialize_value(val):
+    """Convert non-JSON-serializable values to JSON-compatible types."""
+    import numpy as np
+    import pandas as pd
+
+    if val is None:
+        return None
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    if isinstance(val, (np.floating,)):
+        if np.isnan(val):
+            return None
+        return float(val)
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, pd.Timestamp):
+        return val.isoformat()
+    if isinstance(val, pd.DataFrame):
+        return val.to_dict(orient="records")
+    if isinstance(val, dict):
+        return {k: _serialize_value(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_serialize_value(v) for v in val]
+    return val
 
 
 def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
@@ -124,7 +152,22 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
         """
         try:
             experiment = clients.rest.get_experiment(experiment_id)
-            runs = clients.rest.list_experiment_runs(experiment_id, limit=limit)
+
+            # Use SDK to get runs (REST API may not return them)
+            sdk_runs = clients.arize.experiments.list_runs(
+                experiment_id=experiment_id, limit=limit
+            )
+
+            runs = []
+            for run in sdk_runs.experiment_runs:
+                run_dict = {
+                    "id": run.id,
+                    "example_id": run.example_id,
+                    "output": run.output,
+                }
+                if run.additional_properties:
+                    run_dict.update(run.additional_properties)
+                runs.append(run_dict)
 
             return {
                 "experiment": experiment,
@@ -133,3 +176,222 @@ def register_dataset_tools(mcp: FastMCP, clients: ArizeClients):
             }
         except Exception as e:
             return {"error": str(e)}
+
+    @mcp.tool()
+    def run_experiment(
+        dataset_id: str,
+        name: str,
+        prompt_template: str,
+        openai_api_key: str = None,
+        model: str = "gpt-4o-mini",
+        system_prompt: str = None,
+        temperature: float = 0.0,
+        concurrency: int = 3,
+        dry_run: bool = False,
+        dry_run_count: int = 10,
+        passthrough: bool = False,
+    ) -> dict:
+        """Run an experiment on a dataset using an LLM task.
+
+        This tool runs an LLM task over each example in a dataset and records
+        the results as an experiment in Arize.
+
+        Args:
+            dataset_id: ID of the dataset to run the experiment on
+            name: Name for the experiment
+            prompt_template: Prompt template with placeholders like {input} or
+                {input.question}. Available variables: input, output,
+                metadata, id, dataset_row (full row dict)
+            openai_api_key: OpenAI API key for LLM calls. If not provided, will
+                check OPENAI_API_KEY environment variable
+            model: OpenAI model to use (default: gpt-4o-mini)
+            system_prompt: Optional system prompt for the LLM
+            temperature: Temperature for LLM generation (default: 0.0)
+            concurrency: Parallel execution level (default: 3)
+            dry_run: If True, test locally without logging to Arize (default: False)
+            dry_run_count: Number of examples to run in dry-run mode (default: 10)
+            passthrough: If True, return formatted prompt instead of calling LLM.
+                Useful for testing prompt templates without API costs.
+
+        Returns:
+            Experiment results including ID, run count, and sample results
+
+        Example:
+            run_experiment(
+                dataset_id="abc123",
+                name="sentiment_analysis_v1",
+                openai_api_key="sk-...",
+                prompt_template="Classify the sentiment of: {input.text}",
+                system_prompt="You are a sentiment classifier. Respond with: positive, negative, or neutral."
+            )
+        """
+        try:
+            import os
+
+            # Resolve OpenAI API key
+            resolved_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
+
+            if not passthrough and not resolved_api_key:
+                return {
+                    "error": "OpenAI API key required",
+                    "hint": "Provide openai_api_key parameter or set OPENAI_API_KEY environment variable. "
+                    "Alternatively, use passthrough=True to test prompt formatting without LLM calls.",
+                }
+
+            openai_client = None
+            if not passthrough:
+                from openai import OpenAI
+                openai_client = OpenAI(api_key=resolved_api_key)
+
+            def _format_prompt(template: str, example) -> str:
+                """Format prompt template with example data.
+
+                The example can be either:
+                - A dict-like _ReadOnly object with keys: input, output, id, etc.
+                - An Example dataclass with attributes: input, output, metadata, etc.
+                """
+                # Handle both dict-like and attribute-based access
+                def get_value(obj, key, default=None):
+                    try:
+                        return obj[key] if hasattr(obj, '__getitem__') else getattr(obj, key, default)
+                    except (KeyError, AttributeError):
+                        return default
+
+                # Build context from example data
+                # The example may have flat keys (input, output) or nested Example structure
+                context = {}
+
+                # Try to get standard fields
+                input_val = get_value(example, 'input')
+                output_val = get_value(example, 'output')
+                metadata_val = get_value(example, 'metadata')
+                id_val = get_value(example, 'id')
+
+                # Handle input - could be a string, dict, or None
+                if input_val is not None:
+                    if isinstance(input_val, str):
+                        context['input'] = input_val
+                    elif hasattr(input_val, 'items'):
+                        context['input'] = dict(input_val)
+                    else:
+                        context['input'] = input_val
+                else:
+                    context['input'] = {}
+
+                # Handle output similarly
+                if output_val is not None:
+                    if isinstance(output_val, str):
+                        context['output'] = output_val
+                    elif hasattr(output_val, 'items'):
+                        context['output'] = dict(output_val)
+                    else:
+                        context['output'] = output_val
+                else:
+                    context['output'] = {}
+
+                # Metadata and ID
+                if metadata_val and hasattr(metadata_val, 'items'):
+                    context['metadata'] = dict(metadata_val)
+                else:
+                    context['metadata'] = metadata_val or {}
+
+                context['id'] = str(id_val) if id_val else ''
+
+                # Also include the full example as dataset_row for access to all fields
+                if hasattr(example, 'items'):
+                    context['dataset_row'] = dict(example)
+                elif hasattr(example, 'dataset_row'):
+                    context['dataset_row'] = dict(example.dataset_row) if example.dataset_row else {}
+                else:
+                    context['dataset_row'] = {}
+
+                # Handle nested dot notation like {input.question}
+                # First, flatten nested dicts for simple access
+                flat_context = {}
+                for key, value in context.items():
+                    flat_context[key] = value
+                    if isinstance(value, dict):
+                        for sub_key, sub_value in value.items():
+                            flat_context[f"{key}.{sub_key}"] = sub_value
+
+                # Replace placeholders
+                result = template
+                for key, value in flat_context.items():
+                    placeholder = "{" + key + "}"
+                    if placeholder in result:
+                        if isinstance(value, dict):
+                            result = result.replace(placeholder, json.dumps(value))
+                        else:
+                            result = result.replace(placeholder, str(value))
+
+                return result
+
+            def task(example) -> str:
+                """Run LLM on an example or return formatted prompt in passthrough mode."""
+                formatted_prompt = _format_prompt(prompt_template, example)
+
+                if passthrough:
+                    # Return formatted prompt without calling LLM
+                    return formatted_prompt
+
+                messages = []
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.append({"role": "user", "content": formatted_prompt})
+
+                response = openai_client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                )
+
+                return response.choices[0].message.content
+
+            # Run the experiment
+            experiment, results_df = clients.arize.experiments.run(
+                name=name,
+                dataset_id=dataset_id,
+                task=task,
+                concurrency=concurrency,
+                dry_run=dry_run,
+                dry_run_count=dry_run_count,
+            )
+
+            # Serialize results
+            results = _serialize_value(results_df.to_dict(orient="records"))
+
+            response = {
+                "success": True,
+                "dry_run": dry_run,
+                "results": results[:100] if len(results) > 100 else results,
+                "total_runs": len(results),
+            }
+
+            if experiment:
+                response["experiment"] = {
+                    "id": str(experiment.id),
+                    "name": name,
+                    "dataset_id": dataset_id,
+                }
+
+            return response
+
+        except ImportError:
+            return {
+                "error": "OpenAI package not installed",
+                "hint": "Install with: pip install openai",
+            }
+        except Exception as e:
+            error_msg = str(e)
+            # Provide helpful hints for common errors
+            if "API key" in error_msg or "authentication" in error_msg.lower():
+                return {
+                    "error": error_msg,
+                    "hint": "Check that your OpenAI API key is valid",
+                }
+            if "dataset" in error_msg.lower() and "not found" in error_msg.lower():
+                return {
+                    "error": error_msg,
+                    "hint": "Verify the dataset_id exists using list_datasets()",
+                }
+            return {"error": error_msg}
